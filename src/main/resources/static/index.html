@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Crop Disease Helper</title>
+
+    <link rel="stylesheet" href="style.css">
+
+    <style>
+        .history-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .history-card {
+            background: #f7f9f7;
+            border: 1px solid #dce5dc;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 12px;
+        }
+
+        .history-card p {
+            margin: 7px 0;
+            overflow-wrap: anywhere;
+        }
+
+        .history-status {
+            font-weight: bold;
+        }
+
+        #historyButton,
+        #refreshHistoryButton {
+            cursor: pointer;
+            padding: 10px 14px;
+            border: none;
+            border-radius: 6px;
+        }
+
+        #historyList {
+            margin-top: 15px;
+        }
+
+        .history-empty,
+        .history-error {
+            margin-top: 12px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Crop Disease Helper</h1>
+
+    <p class="subtitle" id="subtitle">
+        Upload a crop leaf image to identify possible diseases
+        and receive basic agricultural guidance.
+    </p>
+
+    <form id="predictionForm">
+
+        <div class="form-group">
+            <label for="language">Select Language</label>
+
+            <select id="language" name="language">
+                <option value="en">English</option>
+                <option value="hi">हिन्दी (Hindi)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="crop" id="cropLabel">Select Crop</label>
+
+            <select id="crop" name="crop" required>
+                <option value="">Choose a crop</option>
+                <option value="tomato">Tomato</option>
+                <option value="potato">Potato</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="file" id="fileLabel">
+                Upload Leaf Image
+            </label>
+
+            <input
+                    type="file"
+                    id="file"
+                    name="file"
+                    accept="image/jpeg,image/png"
+                    required
+            >
+
+            <img
+                    src=""
+                    id="imagePreview"
+                    alt="Selected leaf preview"
+                    style="
+                    display: none;
+                    width: 100%;
+                    max-height: 300px;
+                    object-fit: contain;
+                    margin-top: 15px;
+                    border-radius: 10px;
+                "
+            >
+        </div>
+
+        <button type="submit" id="predictButton">
+            Detect Disease
+        </button>
+
+    </form>
+
+    <div id="result" aria-live="polite"></div>
+
+    <!-- Prediction History -->
+    <section class="history-section">
+
+        <div class="history-header">
+            <h2 id="historyTitle">Prediction History</h2>
+
+            <button type="button" id="historyButton">
+                View History
+            </button>
+        </div>
+
+        <div id="historyPanel" hidden>
+
+            <button type="button" id="refreshHistoryButton">
+                Refresh
+            </button>
+
+            <div id="historyList" aria-live="polite"></div>
+
+        </div>
+
+    </section>
+
+</div>
+
+<script>
+
+    // ==================================
+    // 1. HTML ELEMENTS
+    // ==================================
+
+    const form = document.getElementById("predictionForm");
+    const result = document.getElementById("result");
+    const predictButton = document.getElementById("predictButton");
+
+    const fileInput = document.getElementById("file");
+    const imagePreview = document.getElementById("imagePreview");
+
+    const languageSelect = document.getElementById("language");
+
+    const historyButton = document.getElementById("historyButton");
+    const historyPanel = document.getElementById("historyPanel");
+    const refreshHistoryButton = document.getElementById("refreshHistoryButton");
+    const historyList = document.getElementById("historyList");
+
+    let previewUrl = null;
+
+
+    // ==================================
+    // 2. LANGUAGE LABELS
+    // ==================================
+
+    const translations = {
+
+        en: {
+            subtitle: "Upload a crop leaf image to identify possible diseases and receive basic agricultural guidance.",
+            language: "Select Language",
+            crop: "Select Crop",
+            chooseCrop: "Choose a crop",
+            tomato: "Tomato",
+            potato: "Potato",
+            file: "Upload Leaf Image",
+            button: "Detect Disease",
+            analyzing: "Analyzing...",
+            loading: "Analyzing image. Please wait...",
+            selectInputs: "Please select a crop and upload an image.",
+            invalidImage: "Please select a JPEG or PNG image.",
+            uncertain: "Prediction Uncertain",
+            success: "Prediction Result",
+            disease: "Disease: ",
+            confidence: "Confidence: ",
+            advice: "First Steps: ",
+            source: "Source: ",
+            sourceLink: "View Agricultural Source",
+            networkError: "Unable to connect to the server. Please try again.",
+            serverError: "Unable to process your request.",
+
+            historyTitle: "Prediction History",
+            viewHistory: "View History",
+            hideHistory: "Hide History",
+            refresh: "Refresh",
+            loadingHistory: "Loading prediction history...",
+            noHistory: "No prediction history found.",
+            historyError: "Unable to load prediction history.",
+            historyCrop: "Crop",
+            historyDisease: "Predicted Disease",
+            historyConfidence: "Confidence",
+            historyStatus: "Status",
+            historyLanguage: "Language",
+            historyDate: "Date",
+            successStatus: "Success",
+            uncertainStatus: "Uncertain",
+            english: "English",
+            hindi: "Hindi"
+        },
+
+        hi: {
+            subtitle: "फसल के पत्ते की तस्वीर अपलोड करें और संभावित बीमारी तथा शुरुआती कृषि सलाह प्राप्त करें।",
+            language: "भाषा चुनें",
+            crop: "फसल चुनें",
+            chooseCrop: "फसल चुनें",
+            tomato: "टमाटर",
+            potato: "आलू",
+            file: "पत्ते की तस्वीर अपलोड करें",
+            button: "बीमारी की पहचान करें",
+            analyzing: "विश्लेषण हो रहा है...",
+            loading: "तस्वीर का विश्लेषण हो रहा है। कृपया प्रतीक्षा करें...",
+            selectInputs: "कृपया फसल चुनें और तस्वीर अपलोड करें।",
+            invalidImage: "कृपया JPEG या PNG तस्वीर चुनें।",
+            uncertain: "अनिश्चित परिणाम",
+            success: "पहचान का परिणाम",
+            disease: "बीमारी: ",
+            confidence: "विश्वास स्तर: ",
+            advice: "शुरुआती सलाह: ",
+            source: "स्रोत: ",
+            sourceLink: "कृषि स्रोत देखें",
+            networkError: "सर्वर से संपर्क नहीं हो पा रहा है। कृपया दोबारा प्रयास करें।",
+            serverError: "आपका अनुरोध पूरा नहीं हो सका।",
+
+            historyTitle: "पहचान का इतिहास",
+            viewHistory: "इतिहास देखें",
+            hideHistory: "इतिहास छिपाएँ",
+            refresh: "रिफ्रेश करें",
+            loadingHistory: "पहचान का इतिहास लोड हो रहा है...",
+            noHistory: "पहचान का कोई इतिहास उपलब्ध नहीं है।",
+            historyError: "इतिहास लोड नहीं हो सका।",
+            historyCrop: "फसल",
+            historyDisease: "पहचानी गई बीमारी",
+            historyConfidence: "विश्वास स्तर",
+            historyStatus: "स्थिति",
+            historyLanguage: "भाषा",
+            historyDate: "तारीख",
+            successStatus: "सफल",
+            uncertainStatus: "अनिश्चित",
+            english: "अंग्रेज़ी",
+            hindi: "हिन्दी"
+        }
+
+    };
+
+
+    // ==================================
+    // 3. UPDATE FRONTEND LANGUAGE
+    // ==================================
+
+    function updateLanguage() {
+
+        const language = languageSelect.value;
+        const text = translations[language];
+
+        document.getElementById("subtitle").textContent = text.subtitle;
+
+        document.querySelector('label[for="language"]').textContent =
+            text.language;
+
+        document.getElementById("cropLabel").textContent = text.crop;
+        document.getElementById("fileLabel").textContent = text.file;
+
+        const cropSelect = document.getElementById("crop");
+
+        cropSelect.options[0].textContent = text.chooseCrop;
+        cropSelect.options[1].textContent = text.tomato;
+        cropSelect.options[2].textContent = text.potato;
+
+        if (!predictButton.disabled) {
+            predictButton.textContent = text.button;
+        }
+
+        document.getElementById("historyTitle").textContent =
+            text.historyTitle;
+
+        historyButton.textContent = historyPanel.hidden
+            ? text.viewHistory
+            : text.hideHistory;
+
+        refreshHistoryButton.textContent = text.refresh;
+
+        // Refresh visible history using the selected language.
+        if (!historyPanel.hidden) {
+            loadHistory();
+        }
+    }
+
+    languageSelect.addEventListener("change", updateLanguage);
+
+
+    // ==================================
+    // 4. IMAGE PREVIEW
+    // ==================================
+
+    fileInput.addEventListener("change", function() {
+
+        const file = fileInput.files[0];
+
+        if (previewUrl) {
+            URL.revokeObjectURL(previewUrl);
+            previewUrl = null;
+        }
+
+        if (!file) {
+            imagePreview.style.display = "none";
+            imagePreview.removeAttribute("src");
+            return;
+        }
+
+        const text = translations[languageSelect.value];
+
+        if (!["image/jpeg", "image/png"].includes(file.type)) {
+
+            imagePreview.style.display = "none";
+            imagePreview.removeAttribute("src");
+
+            fileInput.value = "";
+            result.textContent = text.invalidImage;
+
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+
+            fileInput.value = "";
+
+            imagePreview.style.display = "none";
+            imagePreview.removeAttribute("src");
+
+            result.textContent = languageSelect.value === "hi"
+                ? "तस्वीर का आकार 5 MB से अधिक नहीं होना चाहिए।"
+                : "Image size must not exceed 5 MB.";
+
+            return;
+        }
+
+        previewUrl = URL.createObjectURL(file);
+
+        imagePreview.src = previewUrl;
+        imagePreview.style.display = "block";
+
+        result.replaceChildren();
+
+    });
+
+
+    // ==================================
+    // 5. DISEASE PREDICTION
+    // ==================================
+
+    form.addEventListener("submit", async function(event) {
+
+        event.preventDefault();
+
+        const file = fileInput.files[0];
+        const crop = document.getElementById("crop").value;
+        const language = languageSelect.value;
+
+        const text = translations[language];
+
+        if (!file || !crop) {
+            result.textContent = text.selectInputs;
+            return;
+        }
+
+        const formData = new FormData();
+
+        formData.append("file", file);
+        formData.append("crop", crop);
+        formData.append("language", language);
+
+        result.replaceChildren();
+
+        const loading = document.createElement("div");
+        loading.className = "loading";
+
+        const spinner = document.createElement("div");
+        spinner.className = "spinner";
+
+        const loadingText = document.createElement("span");
+        loadingText.textContent = text.loading;
+
+        loading.append(spinner, loadingText);
+        result.append(loading);
+
+        predictButton.disabled = true;
+        predictButton.textContent = text.analyzing;
+
+        try {
+
+            const response = await fetch("/api/images/predict", {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await response.json();
+
+            result.replaceChildren();
+
+            if (!response.ok) {
+
+                result.textContent =
+                    typeof data === "string"
+                        ? data
+                        : data.message || text.serverError;
+
+                return;
+            }
+
+            // Uncertain prediction
+            if (data.status === "UNCERTAIN") {
+
+                const heading = document.createElement("h2");
+                heading.textContent = text.uncertain;
+
+                const message = document.createElement("p");
+                message.textContent = data.message;
+
+                result.append(heading, message);
+
+                if (data.confidence !== undefined) {
+
+                    const confidence = document.createElement("p");
+
+                    confidence.textContent =
+                        text.confidence + data.confidence + "%";
+
+                    result.append(confidence);
+                }
+
+                return;
+            }
+
+            // Successful prediction
+            const heading = document.createElement("h2");
+            heading.textContent = text.success;
+
+            const disease = document.createElement("p");
+            disease.textContent = text.disease + data.predictedDisease;
+
+            const confidence = document.createElement("p");
+            confidence.textContent = text.confidence + data.confidence + "%";
+
+            const advice = document.createElement("p");
+            advice.textContent = text.advice + data.advice;
+
+            result.append(heading, disease, confidence, advice);
+
+            if (data.adviceSource) {
+
+                const source = document.createElement("p");
+                source.textContent = text.source + data.adviceSource;
+
+                result.append(source);
+            }
+
+            if (data.adviceSourceUrl) {
+
+                const link = document.createElement("a");
+
+                link.href = data.adviceSourceUrl;
+                link.textContent = text.sourceLink;
+
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+
+                result.append(link);
+            }
+
+        } catch (error) {
+
+            console.error("Prediction error:", error);
+            result.textContent = text.networkError;
+
+        } finally {
+
+            predictButton.disabled = false;
+            predictButton.textContent =
+                translations[languageSelect.value].button;
+
+            // Update history after every prediction attempt.
+            if (!historyPanel.hidden) {
+                await loadHistory();
+            }
+        }
+
+    });
+
+
+    // ==================================
+    // 6. PREDICTION HISTORY
+    // ==================================
+
+    historyButton.addEventListener("click", async function() {
+
+        historyPanel.hidden = !historyPanel.hidden;
+
+        const text = translations[languageSelect.value];
+
+        historyButton.textContent = historyPanel.hidden
+            ? text.viewHistory
+            : text.hideHistory;
+
+        if (!historyPanel.hidden) {
+            await loadHistory();
+        }
+    });
+
+
+    refreshHistoryButton.addEventListener("click", loadHistory);
+
+
+    // Fetch history from Spring Boot
+    async function loadHistory() {
+
+        const text = translations[languageSelect.value];
+
+        historyList.replaceChildren();
+
+        const loading = document.createElement("p");
+        loading.className = "history-empty";
+        loading.textContent = text.loadingHistory;
+
+        historyList.append(loading);
+
+        try {
+
+            const response = await fetch("/api/images/history");
+
+            if (!response.ok) {
+                throw new Error("History API request failed");
+            }
+
+            const records = await response.json();
+
+            historyList.replaceChildren();
+
+            if (!Array.isArray(records) || records.length === 0) {
+
+                const empty = document.createElement("p");
+                empty.className = "history-empty";
+                empty.textContent = text.noHistory;
+
+                historyList.append(empty);
+                return;
+            }
+
+            // Display newest records first.
+            records.sort((a, b) =>
+                new Date(b.createdAt) - new Date(a.createdAt)
+            );
+
+            records.forEach(record => {
+
+                const card = document.createElement("div");
+                card.className = "history-card";
+
+                const crop = document.createElement("p");
+                crop.textContent =
+                    text.historyCrop + ": " + formatCrop(record.crop);
+
+                const disease = document.createElement("p");
+                disease.textContent =
+                    text.historyDisease + ": " +
+                    (record.predictedDisease || "N/A");
+
+                const confidence = document.createElement("p");
+                confidence.textContent =
+                    text.historyConfidence + ": " +
+                    (record.confidence ?? "N/A") +
+                    (record.confidence != null ? "%" : "");
+
+                const status = document.createElement("p");
+                status.className = "history-status";
+                status.textContent =
+                    text.historyStatus + ": " +
+                    formatStatus(record.status, text);
+
+                const language = document.createElement("p");
+                language.textContent =
+                    text.historyLanguage + ": " +
+                    formatLanguage(record.language, text);
+
+                const date = document.createElement("p");
+                date.textContent =
+                    text.historyDate + ": " +
+                    formatDate(record.createdAt);
+
+                card.append(
+                    crop,
+                    disease,
+                    confidence,
+                    status,
+                    language,
+                    date
+                );
+
+                historyList.append(card);
+            });
+
+        } catch (error) {
+
+            console.error("History loading error:", error);
+
+            historyList.replaceChildren();
+
+            const errorMessage = document.createElement("p");
+            errorMessage.className = "history-error";
+            errorMessage.textContent = text.historyError;
+
+            historyList.append(errorMessage);
+        }
+    }
+
+
+    // ==================================
+    // 7. HISTORY FORMATTING HELPERS
+    // ==================================
+
+    function formatCrop(crop) {
+
+        const text = translations[languageSelect.value];
+
+        if (crop === "tomato") return text.tomato;
+        if (crop === "potato") return text.potato;
+
+        return crop || "N/A";
+    }
+
+
+    function formatStatus(status, text) {
+
+        if (status === "SUCCESS") return text.successStatus;
+        if (status === "UNCERTAIN") return text.uncertainStatus;
+
+        return status || "N/A";
+    }
+
+
+    function formatLanguage(language, text) {
+
+        if (language === "en") return text.english;
+        if (language === "hi") return text.hindi;
+
+        return language || "N/A";
+    }
+
+
+    function formatDate(dateValue) {
+
+        if (!dateValue) return "N/A";
+
+        const date = new Date(dateValue);
+
+        if (Number.isNaN(date.getTime())) {
+            return dateValue;
+        }
+
+        return date.toLocaleString(
+            languageSelect.value === "hi" ? "hi-IN" : "en-IN"
+        );
+    }
+
+
+    // ==================================
+    // 8. INITIALIZE FRONTEND
+    // ==================================
+
+    updateLanguage();
+
+</script>
+
+</body>
+</html>
